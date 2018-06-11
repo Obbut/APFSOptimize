@@ -4,4 +4,4 @@ Makes APFS clones from duplicate files to save space. No guarantees that this do
 
 To use: Run with the target folder as argument, or with no arguments to deduplicate the current working directory.
 
-Currently does not handle permissions and attributes correctly
+Requires root permissions in order to set attributes correctly
