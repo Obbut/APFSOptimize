@@ -10,6 +10,12 @@ let enumerator = fm.enumerator(atPath: path)!
 
 var pathsByFileSize: [UInt64: [String]] = [:]
 var results: [String: [String]] = [:]
+var savedSize: UInt64 = 0
+
+// for progress reporting
+var totalCount = 0
+var hashedCount = 0
+var lastReportedPercentage = 0
 
 let resultsMutationQueue = DispatchQueue(label: "resultsMutationQueue")
 let hashingQueue = DispatchQueue(label: "hashingQueue", attributes: .concurrent)
@@ -32,6 +38,14 @@ func addHash(_ hash: String, forFile file: String) {
         } else {
             results[hash] = [file]
         }
+        
+        hashedCount += 1
+        let percentage = Int((Double(hashedCount) / Double(totalCount)) * 100)
+        
+        if percentage > lastReportedPercentage {
+            lastReportedPercentage = percentage
+            print("\(percentage)% done")
+        }
     }
 }
 
@@ -39,15 +53,17 @@ func addHash(_ hash: String, forFile file: String) {
 print("Making duplicate candidate list")
 while let path = enumerator.nextObject() as? String {
     
-    // skip directories
-    var isDirectory: ObjCBool = false
-    guard fm.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue else {
-        continue
+    try autoreleasepool {
+        // skip directories
+        var isDirectory: ObjCBool = false
+        guard fm.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+            return
+        }
+        
+        let attributes = try fm.attributesOfItem(atPath: path)
+        let size = attributes[.size] as! UInt64
+        addSize(size, forFile: path)
     }
-    
-    let attributes = try fm.attributesOfItem(atPath: path)
-    let size = attributes[.size] as! UInt64
-    addSize(size, forFile: path)
     
 }
 
@@ -58,6 +74,7 @@ let pathsToChecksum: [String] = pathsByFileSize.filter { _, paths in paths.count
     
     return paths
 }
+totalCount = pathsToChecksum.count
 pathsByFileSize.removeAll(keepingCapacity: false) // not needed anymore, save some memory
 
 print("Generating checksums for \(pathsToChecksum.count) files")
@@ -119,8 +136,15 @@ for (_, paths) in results {
             
             if #available(OSX 10.12, *) {
                 // TODO: Validate equality
+                let attributes = try fm.attributesOfItem(atPath: path)
                 try fm.removeItem(atPath: path)
                 clonefile(masterPath, path, 0)
+                
+                try fm.setAttributes(attributes, ofItemAtPath: path)
+                
+                if let size = attributes[.size] as? UInt64 {
+                    savedSize += size
+                }
             } else {
                 fatalError()
             }
@@ -130,4 +154,4 @@ for (_, paths) in results {
     }
 }
 
-print("Done.")
+print("Done. Potential savings: \(Int(Double(savedSize) / 1000_000)) MB")
